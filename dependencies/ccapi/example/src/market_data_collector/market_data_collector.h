@@ -40,6 +40,7 @@ private:
     Config config_;
     std::shared_ptr<MSSQLBulkInserter> db_;
     std::shared_ptr<CandleAggregator> candle_agg_;
+    std::shared_ptr<HotSpine::HotSpineWriter> hotspine_writer_;
     std::shared_ptr<MarketDataProcessor> processor_;
     std::unique_ptr<ExchangeConnectionManager> conn_mgr_;
 

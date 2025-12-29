@@ -9,6 +9,7 @@
 #include "ccapi_cpp/ccapi_session.h"
 #include "candle_aggregator.h"
 #include "mssql_bulk_inserter.h"
+#include "../hotspine/hotspine_writer.hpp"
 
 class MarketDataProcessor : public ccapi::EventHandler {
 public:
@@ -31,7 +32,8 @@ public:
     };
 
     MarketDataProcessor(std::shared_ptr<MSSQLBulkInserter> db,
-                        std::shared_ptr<CandleAggregator> candle_agg);
+                        std::shared_ptr<CandleAggregator> candle_agg,
+                        std::shared_ptr<HotSpine::HotSpineWriter> hotspine_writer = nullptr);
 
     void processEvent(const ccapi::Event& event,
                       ccapi::Session* session) override;
@@ -49,6 +51,7 @@ public:
 private:
     std::shared_ptr<MSSQLBulkInserter> db_;
     std::shared_ptr<CandleAggregator> candle_agg_;
+    std::shared_ptr<HotSpine::HotSpineWriter> hotspine_writer_;
 
     std::vector<MarketData::Trade> trade_buffer_;
     std::vector<MarketData::OHLCV> candle_buffer_;

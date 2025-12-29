@@ -66,8 +66,11 @@ using namespace MarketData;
 
 MarketDataProcessor::MarketDataProcessor(
     std::shared_ptr<MSSQLBulkInserter> db,
-    std::shared_ptr<CandleAggregator> candle_agg)
-    : db_(std::move(db)), candle_agg_(std::move(candle_agg)) {}
+    std::shared_ptr<CandleAggregator> candle_agg,
+    std::shared_ptr<HotSpine::HotSpineWriter> hotspine_writer)
+    : db_(std::move(db)),
+      candle_agg_(std::move(candle_agg)),
+      hotspine_writer_(std::move(hotspine_writer)) {}
 
 std::vector<std::string> MarketDataProcessor::split(
     const std::string& s, char delim) {
@@ -192,6 +195,14 @@ void MarketDataProcessor::handleTradeMessage(const ccapi::Message& msg) {
             pair_stats_[key].trades++;
         }
         candle_agg_->processTrade(t);
+        
+        // Write to HotSpine if writer is available
+        if (hotspine_writer_) {
+            if (!hotspine_writer_->writeTrade(t)) {
+                std::cerr << "HotSpine write failed for trade: "
+                          << exchange << ":" << symbol << std::endl;
+            }
+        }
 
         // keep stats as milliseconds
         double latency_ms =

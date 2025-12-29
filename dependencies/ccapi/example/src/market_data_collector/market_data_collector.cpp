@@ -1,4 +1,5 @@
 #include "market_data_collector.h"
+#include "../hotspine/hotspine_writer.hpp"
 
 #include <chrono>
 #include <iostream>
@@ -13,7 +14,12 @@ MarketDataCollector::MarketDataCollector(const Config& cfg)
     candle_agg_ = std::make_shared<CandleAggregator>(
         config_.timeframes);
 
-    processor_ = std::make_shared<MarketDataProcessor>(db_, candle_agg_);
+    // Create HotSpine writer with optimized settings for low latency
+    hotspine_writer_ = std::make_shared<HotSpine::HotSpineWriter>("/btquant_hotspine");
+    hotspine_writer_->setBatchingEnabled(true);
+    hotspine_writer_->setBatchSize(50); // Smaller batch size for lower latency
+
+    processor_ = std::make_shared<MarketDataProcessor>(db_, candle_agg_, hotspine_writer_);
     processor_->setBufferLimits(config_.trade_buffer_size,
                                 config_.candle_buffer_size,
                                 config_.orderbook_buffer_size);
@@ -44,6 +50,12 @@ void MarketDataCollector::stop() {
 
     // final flush
     processor_->flushBuffers();
+    
+    // Final HotSpine flush
+    if (hotspine_writer_) {
+        hotspine_writer_->flushBatch();
+    }
+    
     auto final_candles = candle_agg_->flushAll();
     if (!final_candles.empty()) {
         // group per table
@@ -87,6 +99,11 @@ void MarketDataCollector::flushLoop() {
         std::this_thread::sleep_for(
             std::chrono::milliseconds(config_.flush_interval_ms));
         processor_->flushBuffers();
+        
+        // Also flush HotSpine batch if writer is available
+        if (hotspine_writer_) {
+            hotspine_writer_->flushBatch();
+        }
     }
 }
 
