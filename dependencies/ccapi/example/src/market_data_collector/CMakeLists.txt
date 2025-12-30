@@ -1,5 +1,6 @@
 add_executable(market_data_collector
     main.cpp
+    config_loader.cpp
     mssql_bulk_inserter.cpp
     candle_aggregator.cpp
     market_data_processor.cpp
@@ -9,7 +10,7 @@ add_executable(market_data_collector
 
 add_executable(test_config_loading
     test_config_loading.cpp
-    main.cpp
+    config_loader.cpp
     mssql_bulk_inserter.cpp
     candle_aggregator.cpp
     market_data_processor.cpp
