@@ -33,7 +33,8 @@ public:
 
     MarketDataProcessor(std::shared_ptr<MSSQLBulkInserter> db,
                         std::shared_ptr<CandleAggregator> candle_agg,
-                        std::shared_ptr<HotSpine::HotSpineWriter> hotspine_writer = nullptr);
+                        std::shared_ptr<HotSpine::HotSpineWriter> hotspine_writer = nullptr,
+                        bool enable_exclusive_hotspine = false);
 
     void processEvent(const ccapi::Event& event,
                       ccapi::Session* session) override;
@@ -76,6 +77,8 @@ private:
     std::size_t max_trade_buffer_size_{500};
     std::size_t max_candle_buffer_size_{200};
     std::size_t max_orderbook_buffer_size_{100};
+
+    bool enable_exclusive_hotspine_{false};
 
     void handleTradeMessage(const ccapi::Message& msg);
     void handleOrderbookMessage(const ccapi::Message& msg);

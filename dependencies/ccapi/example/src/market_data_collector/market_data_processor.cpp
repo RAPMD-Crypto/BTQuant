@@ -67,10 +67,12 @@ using namespace MarketData;
 MarketDataProcessor::MarketDataProcessor(
     std::shared_ptr<MSSQLBulkInserter> db,
     std::shared_ptr<CandleAggregator> candle_agg,
-    std::shared_ptr<HotSpine::HotSpineWriter> hotspine_writer)
+    std::shared_ptr<HotSpine::HotSpineWriter> hotspine_writer,
+    bool enable_exclusive_hotspine)
     : db_(std::move(db)),
       candle_agg_(std::move(candle_agg)),
-      hotspine_writer_(std::move(hotspine_writer)) {}
+      hotspine_writer_(std::move(hotspine_writer)),
+      enable_exclusive_hotspine_(enable_exclusive_hotspine) {}
 
 std::vector<std::string> MarketDataProcessor::split(
     const std::string& s, char delim) {
@@ -204,13 +206,19 @@ void MarketDataProcessor::handleTradeMessage(const ccapi::Message& msg) {
             }
         }
 
-        // keep stats as milliseconds
-        double latency_ms =
-            static_cast<double>(recv_time_us - t.timestamp_us) / 1000.0;
-        stats_.avg_latency_ms = 0.99 * stats_.avg_latency_ms + 0.01 * latency_ms;
+        // In exclusive hotswap mode, don't write to database
+        if (!enable_exclusive_hotspine_) {
+            // keep stats as milliseconds
+            double latency_ms =
+                static_cast<double>(recv_time_us - t.timestamp_us) / 1000.0;
+            stats_.avg_latency_ms = 0.99 * stats_.avg_latency_ms + 0.01 * latency_ms;
+        }
     }
 
-    flushTradesIfNeeded();
+    // In exclusive hotswap mode, don't flush trades to database
+    if (!enable_exclusive_hotspine_) {
+        flushTradesIfNeeded();
+    }
 }
 
 void MarketDataProcessor::handleOrderbookMessage(
@@ -329,6 +337,11 @@ void MarketDataProcessor::handleOrderbookMessage(
 
 
 void MarketDataProcessor::flushTradesIfNeeded(bool force) {
+    // In exclusive hotswap mode, don't flush trades to database
+    if (enable_exclusive_hotspine_) {
+        return;
+    }
+
     std::vector<Trade> batch;
     {
         std::lock_guard<std::mutex> lock(buffer_mutex_);
@@ -350,6 +363,11 @@ void MarketDataProcessor::flushTradesIfNeeded(bool force) {
 }
 
 void MarketDataProcessor::flushCandlesIfNeeded(bool force) {
+    // In exclusive hotswap mode, don't flush candles to database
+    if (enable_exclusive_hotspine_) {
+        return;
+    }
+
     // Pull newly completed candles from aggregator
     auto newly_completed = candle_agg_->getAllCompletedCandles();
     stats_.candles_generated += newly_completed.size();
@@ -388,6 +406,11 @@ void MarketDataProcessor::flushCandlesIfNeeded(bool force) {
 }
 
 void MarketDataProcessor::flushOrderbooksIfNeeded(bool force) {
+    // In exclusive hotswap mode, don't flush orderbooks to database
+    if (enable_exclusive_hotspine_) {
+        return;
+    }
+
     std::vector<OrderbookSnapshot> batch;
     {
         std::lock_guard<std::mutex> lock(buffer_mutex_);
@@ -411,9 +434,16 @@ void MarketDataProcessor::flushOrderbooksIfNeeded(bool force) {
 }
 
 void MarketDataProcessor::flushBuffers() {
-    flushTradesIfNeeded(true);
-    flushCandlesIfNeeded(true);
-    flushOrderbooksIfNeeded(true);
+    // In exclusive hotswap mode, only flush HotSpine
+    if (enable_exclusive_hotspine_) {
+        if (hotspine_writer_) {
+            hotspine_writer_->flushBatch();
+        }
+    } else {
+        flushTradesIfNeeded(true);
+        flushCandlesIfNeeded(true);
+        flushOrderbooksIfNeeded(true);
+    }
 }
 
 MarketDataProcessor::Stats MarketDataProcessor::getStats() const {

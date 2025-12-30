@@ -8,8 +8,11 @@
 MarketDataCollector::MarketDataCollector(const Config& cfg)
     : config_(cfg) {
 
-    db_ = std::make_shared<MSSQLBulkInserter>(
-        config_.db_connection_string);
+    // Conditionally initialize MS SQL database
+    if (config_.enable_mssql) {
+        db_ = std::make_shared<MSSQLBulkInserter>(
+            config_.db_connection_string);
+    }
 
     candle_agg_ = std::make_shared<CandleAggregator>(
         config_.timeframes);
@@ -19,7 +22,7 @@ MarketDataCollector::MarketDataCollector(const Config& cfg)
     hotspine_writer_->setBatchingEnabled(true);
     hotspine_writer_->setBatchSize(50); // Smaller batch size for lower latency
 
-    processor_ = std::make_shared<MarketDataProcessor>(db_, candle_agg_, hotspine_writer_);
+    processor_ = std::make_shared<MarketDataProcessor>(db_, candle_agg_, hotspine_writer_, config_.enable_exclusive_hotspine);
     processor_->setBufferLimits(config_.trade_buffer_size,
                                 config_.candle_buffer_size,
                                 config_.orderbook_buffer_size);
@@ -57,7 +60,7 @@ void MarketDataCollector::stop() {
     }
     
     auto final_candles = candle_agg_->flushAll();
-    if (!final_candles.empty()) {
+    if (!final_candles.empty() && config_.enable_mssql) {
         // group per table
         std::unordered_map<std::string,
                            std::vector<MarketData::OHLCV>> per_table;

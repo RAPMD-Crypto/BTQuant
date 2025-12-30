@@ -32,10 +32,48 @@ void signalHandler(int) {
 
 MarketDataCollector::Config loadConfig(const std::string& path) {
     std::ifstream in(path);
-    if (!in) {
-        throw std::runtime_error("Cannot open config file: " + path);
-    }
     json j;
+
+    if (!in) {
+        // If config file doesn't exist, use default values
+        std::cout << "Config file not found: " << path << ", using default configuration." << std::endl;
+        
+        // Create default configuration
+        MarketDataCollector::Config cfg;
+        
+        // Default database connection (will be used if enable_mssql is true)
+        cfg.db_connection_string = createConnectionString(
+            "localhost",
+            "market_data",
+            "sa",
+            "your_password");
+        
+        // Default timeframes
+        cfg.timeframes = {"1m", "5m", "15m", "1h"};
+        
+        // Default exchange configuration
+        ExchangeConnectionManager::ExchangeConfig ec;
+        ec.exchange_name = "binance";
+        ec.symbols = {"BTC-USDT", "ETH-USDT"};
+        ec.channels = {"TRADE", "MARKET_DEPTH"};
+        ec.market_type = "spot";
+        cfg.exchanges.push_back(std::move(ec));
+        
+        // Default buffer sizes and intervals
+        cfg.trade_buffer_size = 1000;
+        cfg.candle_buffer_size = 200;
+        cfg.orderbook_buffer_size = 100;
+        cfg.flush_interval_ms = 1000;
+        cfg.stats_report_interval_s = 10;
+        
+        // Default toggle settings - MS SQL enabled, hotswap disabled
+        cfg.enable_mssql = true;
+        cfg.enable_exclusive_hotspine = false;
+        
+        return cfg;
+    }
+    
+    // Load configuration from file
     in >> j;
 
     MarketDataCollector::Config cfg;
@@ -54,7 +92,7 @@ MarketDataCollector::Config loadConfig(const std::string& path) {
 
         ec.exchange_name = ex.at("name").get<std::string>();
         ec.symbols       = ex.at("symbols")
-                               .get<std::vector<std::string>>();
+                             .get<std::vector<std::string>>();
         ec.channels      = ex.value(
             "channels",
             std::vector<std::string>{"TRADE", "MARKET_DEPTH"}
@@ -72,6 +110,10 @@ MarketDataCollector::Config loadConfig(const std::string& path) {
     cfg.orderbook_buffer_size    = j.value("orderbook_buffer_size", 100);
     cfg.flush_interval_ms        = j.value("flush_interval_ms", 1000);
     cfg.stats_report_interval_s  = j.value("stats_report_interval_s", 10);
+
+    // New configuration options
+    cfg.enable_mssql              = j.value("enable_mssql", true);
+    cfg.enable_exclusive_hotspine = j.value("enable_exclusive_hotspine", false);
 
     return cfg;
 }

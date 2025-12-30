@@ -25,6 +25,10 @@ public:
 
         int flush_interval_ms{1000};
         int stats_report_interval_s{10};
+
+        // New configuration options
+        bool enable_mssql{true};           // Enable/disable MS SQL database
+        bool enable_exclusive_hotspine{false}; // Enable exclusive hotswap mode
     };
 
     explicit MarketDataCollector(const Config& cfg);
