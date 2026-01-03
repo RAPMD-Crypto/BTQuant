@@ -30,7 +30,10 @@ public:
     
     // Check if writer is healthy
     bool isHealthy() const;
-    
+     
+    // Get detailed statistics
+    std::string getDetailedStats() const;
+     
     // Batching control
     void setBatchingEnabled(bool enabled) { batching_enabled_ = enabled; }
     void setBatchSize(size_t size) { batch_size_ = size; }

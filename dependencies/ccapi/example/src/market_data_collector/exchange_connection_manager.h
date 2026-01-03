@@ -24,6 +24,13 @@ public:
     void subscribe(const std::vector<ExchangeConfig>& cfgs);
     void start();
     void stop();
+    void logSessionStatus() const;
+    void logWebSocketStatus() const;
+    void checkWebSocketConnection() const;
+    void logWebSocketDebugInfo() const;
+    void monitorWebSocketDataFlow() const;
+    void addWebSocketDebugging() const;
+    void diagnoseWebSocketIssues() const;
 
     bool isRunning() const { return running_; }
 

@@ -42,6 +42,11 @@ public:
     void setBufferLimits(std::size_t max_trades,
                          std::size_t max_candles,
                          std::size_t max_orderbooks);
+    
+    void logWebSocketDataFlowStats() const;
+    void addWebSocketDebugging();
+    void validateWebSocketDataFlow();
+    void validateCCAPIConfiguration();
 
     void flushBuffers();  // called periodically by orchestrator
 

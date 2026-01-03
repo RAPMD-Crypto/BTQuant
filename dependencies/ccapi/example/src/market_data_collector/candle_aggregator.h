@@ -19,6 +19,9 @@ public:
     // Force close all open candles (e.g. shutdown)
     std::vector<MarketData::OHLCV> flushAll();
 
+    // Validate candle aggregation state
+    void validateCandleAggregation() const;
+
 private:
     struct CandleState {
         int64_t open_time_ms{0};
@@ -35,7 +38,7 @@ private:
     std::unordered_map<std::string, CandleState> active_;
     std::vector<MarketData::OHLCV> completed_;
     std::vector<std::string> timeframes_;
-    std::mutex mutex_;
+    mutable std::mutex mutex_;
 
     int64_t alignTimestamp(int64_t timestamp_us,
                            const std::string& timeframe) const;

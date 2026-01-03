@@ -30,6 +30,23 @@ struct HotTrade {
     uint8_t side;         // 0=buy, 1=sell
 };
 
+// Orderbook level structure
+struct HotOrderbookLevel {
+    double price;
+    double size;
+};
+
+// Orderbook snapshot structure (must match between writer and reader)
+struct HotOrderbookSnapshot {
+    uint64_t ts_exchange;  // exchange timestamp in microseconds
+    uint64_t ts_local;     // local receive timestamp in microseconds
+    uint32_t symbol_id;    // symbol ID (hash or mapping)
+    uint8_t bids_count;    // number of bid levels
+    uint8_t asks_count;    // number of ask levels
+    HotOrderbookLevel bids[20]; // max 20 bid levels
+    HotOrderbookLevel asks[20]; // max 20 ask levels
+};
+
 // Calculate total shared memory size needed
 static inline size_t calculateSharedMemorySize(uint64_t capacity) {
     return HEADER_SIZE + (capacity * sizeof(HotTrade));

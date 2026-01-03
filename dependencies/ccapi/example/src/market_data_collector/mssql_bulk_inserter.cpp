@@ -7,10 +7,29 @@
 #include <cctype>
 #include <sql.h>
 #include <sqlext.h>
+#include <chrono>
+#include <iomanip>
+#include <sstream>
 
 using namespace MarketData;
 
 namespace {
+
+// Helper function for timestamped logging
+std::string getCurrentTimestamp() {
+    auto now = std::chrono::system_clock::now();
+    auto now_time = std::chrono::system_clock::to_time_t(now);
+    auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+    
+    std::tm tm = *std::localtime(&now_time);
+    char buffer[64];
+    strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", &tm);
+    
+    char ms_buffer[10];
+    snprintf(ms_buffer, sizeof(ms_buffer), "%03d", static_cast<int>(now_ms.count()));
+    
+    return std::string(buffer) + "." + ms_buffer;
+}
 
 constexpr SQLULEN     kTimestampColumnSize   = 27;
 constexpr SQLSMALLINT kTimestampScaleMicros  = 6;
@@ -31,26 +50,39 @@ MSSQLBulkInserter::MSSQLBulkInserter(const std::string& connection_string)
     : connection_string_(connection_string) {
     SQLRETURN ret;
 
+    std::cout << "[" << getCurrentTimestamp() << "][INFO] MSSQLBulkInserter: Initializing database connection" << std::endl;
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Connection string: " << connection_string_ << std::endl;
+
     // ENV
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Allocating ODBC environment handle" << std::endl;
     ret = SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, &env_);
     if (!SQL_SUCCEEDED(ret)) {
+        std::cerr << "[" << getCurrentTimestamp() << "][ERROR] MSSQLBulkInserter: Failed to allocate ODBC environment handle" << std::endl;
         throw std::runtime_error("SQLAllocHandle ENV");
     }
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   ODBC environment handle allocated successfully" << std::endl;
 
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Setting ODBC version to ODBC3" << std::endl;
     ret = SQLSetEnvAttr(env_, SQL_ATTR_ODBC_VERSION,
                         (SQLPOINTER)SQL_OV_ODBC3, 0);
     if (!SQL_SUCCEEDED(ret)) {
+        std::cerr << "[" << getCurrentTimestamp() << "][ERROR] MSSQLBulkInserter: Failed to set ODBC version" << std::endl;
         SQLFreeHandle(SQL_HANDLE_ENV, env_);
         throw std::runtime_error("SQLSetEnvAttr ODBC_VERSION");
     }
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   ODBC version set successfully" << std::endl;
 
     // DBC
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Allocating ODBC connection handle" << std::endl;
     ret = SQLAllocHandle(SQL_HANDLE_DBC, env_, &dbc_);
     if (!SQL_SUCCEEDED(ret)) {
+        std::cerr << "[" << getCurrentTimestamp() << "][ERROR] MSSQLBulkInserter: Failed to allocate ODBC connection handle" << std::endl;
         SQLFreeHandle(SQL_HANDLE_ENV, env_);
         throw std::runtime_error("SQLAllocHandle DBC");
     }
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   ODBC connection handle allocated successfully" << std::endl;
 
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Connecting to database using SQLDriverConnect" << std::endl;
     SQLCHAR out_conn_str[1024];
     SQLSMALLINT out_len = 0;
     ret = SQLDriverConnect(
@@ -61,76 +93,145 @@ MSSQLBulkInserter::MSSQLBulkInserter(const std::string& connection_string)
         SQL_DRIVER_NOPROMPT);
 
     if (!SQL_SUCCEEDED(ret)) {
+        std::cerr << "[" << getCurrentTimestamp() << "][ERROR] MSSQLBulkInserter: Database connection failed" << std::endl;
         throwODBCError(SQL_HANDLE_DBC, dbc_, "SQLDriverConnect");
     }
 
+    std::cout << "[" << getCurrentTimestamp() << "][INFO] MSSQLBulkInserter: Database connection established successfully" << std::endl;
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Connection output: " << std::string((char*)out_conn_str, out_len) << std::endl;
+
     // STMT used for data-path & DDL
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Allocating ODBC statement handle" << std::endl;
     ret = SQLAllocHandle(SQL_HANDLE_STMT, dbc_, &stmt_);
     if (!SQL_SUCCEEDED(ret)) {
+        std::cerr << "[" << getCurrentTimestamp() << "][ERROR] MSSQLBulkInserter: Failed to allocate ODBC statement handle" << std::endl;
         throwODBCError(SQL_HANDLE_DBC, dbc_, "SQLAllocHandle STMT");
     }
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   ODBC statement handle allocated successfully" << std::endl;
 
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Configuring database connection settings" << std::endl;
     setAutoCommit(false);
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Auto-commit disabled, transaction mode enabled" << std::endl;
+
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Ensuring core database tables exist" << std::endl;
     ensureCoreTables();
+    std::cout << "[" << getCurrentTimestamp() << "][INFO] MSSQLBulkInserter: Database initialization completed successfully" << std::endl;
 }
 
 MSSQLBulkInserter::~MSSQLBulkInserter() {
+    std::cout << "[" << getCurrentTimestamp() << "][INFO] MSSQLBulkInserter: Cleaning up database resources" << std::endl;
+
     if (stmt_ != SQL_NULL_HSTMT) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Releasing ODBC statement handle" << std::endl;
         SQLFreeHandle(SQL_HANDLE_STMT, stmt_);
         stmt_ = SQL_NULL_HSTMT;
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   ODBC statement handle released" << std::endl;
     }
+
     if (dbc_ != SQL_NULL_HDBC) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Disconnecting from database" << std::endl;
         SQLDisconnect(dbc_);
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Releasing ODBC connection handle" << std::endl;
         SQLFreeHandle(SQL_HANDLE_DBC, dbc_);
         dbc_ = SQL_NULL_HDBC;
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   ODBC connection handle released" << std::endl;
     }
+
     if (env_ != SQL_NULL_HENV) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Releasing ODBC environment handle" << std::endl;
         SQLFreeHandle(SQL_HANDLE_ENV, env_);
         env_ = SQL_NULL_HENV;
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   ODBC environment handle released" << std::endl;
     }
+
+    std::cout << "[" << getCurrentTimestamp() << "][INFO] MSSQLBulkInserter: Database resources cleaned up successfully" << std::endl;
 }
 
 bool MSSQLBulkInserter::isConnected() const {
-    if (dbc_ == SQL_NULL_HDBC) return false;
+    if (dbc_ == SQL_NULL_HDBC) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Connection check - DBC handle is null" << std::endl;
+        return false;
+    }
+    
     SQLINTEGER dead = SQL_CD_TRUE;
     SQLRETURN ret = SQLGetConnectAttr(
         dbc_, SQL_ATTR_CONNECTION_DEAD, &dead, 0, nullptr);
-    return SQL_SUCCEEDED(ret) && dead == SQL_CD_FALSE;
+    
+    if (!SQL_SUCCEEDED(ret)) {
+        std::cerr << "[" << getCurrentTimestamp() << "][ERROR] MSSQLBulkInserter: Failed to get connection status" << std::endl;
+        return false;
+    }
+    
+    bool connected = dead == SQL_CD_FALSE;
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Connection status - "
+              << (connected ? "CONNECTED" : "DISCONNECTED") << std::endl;
+    return connected;
 }
 
 void MSSQLBulkInserter::resetStatement() {
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Resetting statement handle" << std::endl;
+    
     if (stmt_ != SQL_NULL_HSTMT) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Freeing existing statement handle" << std::endl;
         SQLFreeHandle(SQL_HANDLE_STMT, stmt_);
         stmt_ = SQL_NULL_HSTMT;
     }
+    
     SQLRETURN ret = SQLAllocHandle(SQL_HANDLE_STMT, dbc_, &stmt_);
     if (!SQL_SUCCEEDED(ret)) {
+        std::cerr << "[" << getCurrentTimestamp() << "][ERROR] MSSQLBulkInserter: Failed to allocate new statement handle" << std::endl;
         throwODBCError(SQL_HANDLE_DBC, dbc_, "SQLAllocHandle STMT");
     }
+    
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Statement handle reset successfully" << std::endl;
 }
 
 void MSSQLBulkInserter::setAutoCommit(bool enabled) {
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Setting auto-commit to "
+              << (enabled ? "ON" : "OFF") << std::endl;
+    
     SQLRETURN ret = SQLSetConnectAttr(
         dbc_, SQL_ATTR_AUTOCOMMIT,
         enabled ? (SQLPOINTER)SQL_AUTOCOMMIT_ON
                 : (SQLPOINTER)SQL_AUTOCOMMIT_OFF,
         SQL_IS_UINTEGER);
     if (!SQL_SUCCEEDED(ret)) {
+        std::cerr << "[" << getCurrentTimestamp() << "][ERROR] MSSQLBulkInserter: Failed to set auto-commit mode" << std::endl;
         throwODBCError(SQL_HANDLE_DBC, dbc_,
                        "SQLSetConnectAttr AUTOCOMMIT");
     }
+    
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Auto-commit mode set successfully" << std::endl;
 }
 
 void MSSQLBulkInserter::beginTransaction() {
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Beginning database transaction" << std::endl;
     setAutoCommit(false);
+    std::cout << "[" << getCurrentTimestamp() << "][INFO] MSSQLBulkInserter: Transaction started successfully" << std::endl;
 }
 
 void MSSQLBulkInserter::commitTransaction() {
-    SQLEndTran(SQL_HANDLE_DBC, dbc_, SQL_COMMIT);
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Committing database transaction" << std::endl;
+    
+    SQLRETURN ret = SQLEndTran(SQL_HANDLE_DBC, dbc_, SQL_COMMIT);
+    if (!SQL_SUCCEEDED(ret)) {
+        std::cerr << "[" << getCurrentTimestamp() << "][ERROR] MSSQLBulkInserter: Failed to commit transaction" << std::endl;
+        throwODBCError(SQL_HANDLE_DBC, dbc_, "SQLEndTran COMMIT");
+    }
+    
+    std::cout << "[" << getCurrentTimestamp() << "][INFO] MSSQLBulkInserter: Transaction committed successfully" << std::endl;
 }
 
 void MSSQLBulkInserter::rollbackTransaction() {
-    SQLEndTran(SQL_HANDLE_DBC, dbc_, SQL_ROLLBACK);
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Rolling back database transaction" << std::endl;
+    
+    SQLRETURN ret = SQLEndTran(SQL_HANDLE_DBC, dbc_, SQL_ROLLBACK);
+    if (!SQL_SUCCEEDED(ret)) {
+        std::cerr << "[" << getCurrentTimestamp() << "][ERROR] MSSQLBulkInserter: Failed to rollback transaction" << std::endl;
+        throwODBCError(SQL_HANDLE_DBC, dbc_, "SQLEndTran ROLLBACK");
+    }
+    
+    std::cout << "[" << getCurrentTimestamp() << "][INFO] MSSQLBulkInserter: Transaction rolled back successfully" << std::endl;
 }
 
 void MSSQLBulkInserter::throwODBCError(SQLSMALLINT handle_type,
@@ -157,11 +258,20 @@ void MSSQLBulkInserter::bulkInsertTrades(
     const std::vector<MarketData::Trade>& trades,
     std::size_t batch_size) {
 
-    if (trades.empty()) return;
+    if (trades.empty()) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: bulkInsertTrades called with empty trade list" << std::endl;
+        return;
+    }
+    
+    std::cout << "[" << getCurrentTimestamp() << "][INFO] MSSQLBulkInserter: Starting bulk insert of " << trades.size() << " trades" << std::endl;
+    
     if (!isConnected()) {
+        std::cerr << "[" << getCurrentTimestamp() << "][ERROR] MSSQLBulkInserter: Cannot insert trades - database not connected" << std::endl;
         throw std::runtime_error("bulkInsertTrades: not connected");
     }
 
+    auto start_time = std::chrono::high_resolution_clock::now();
+    
     resetStatement();
     setAutoCommit(false);
 
@@ -173,14 +283,19 @@ void MSSQLBulkInserter::bulkInsertTrades(
         "  [trade_id], [price], [quantity], [side], [is_buyer_maker]) "
         "VALUES (?,?,?,?,?,?,?,?,?);";
 
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Preparing SQL statement for trade insertion" << std::endl;
     ret = SQLPrepare(stmt_, (SQLCHAR*)insert_sql, SQL_NTS);
     if (!SQL_SUCCEEDED(ret)) {
+        std::cerr << "[" << getCurrentTimestamp() << "][ERROR]   Failed to prepare SQL statement for trades" << std::endl;
         throwODBCError(SQL_HANDLE_STMT, stmt_,
                        "Prepare bulkInsertTrades");
     }
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   SQL statement prepared successfully" << std::endl;
 
     const std::size_t total = trades.size();
     const std::size_t bs    = batch_size == 0 ? total : batch_size;
+
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Total trades: " << total << ", Batch size: " << bs << std::endl;
 
     constexpr std::size_t EXCH_LEN  = 50;
     constexpr std::size_t SYM_LEN   = 50;
@@ -191,8 +306,12 @@ void MSSQLBulkInserter::bulkInsertTrades(
     SQLSetStmtAttr(stmt_, SQL_ATTR_PARAM_BIND_TYPE,
                    (SQLPOINTER)SQL_PARAM_BIND_BY_COLUMN, 0);
 
+    std::size_t total_inserted = 0;
+    
     for (std::size_t offset = 0; offset < total; ) {
         const std::size_t n = std::min(bs, total - offset);
+        
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Processing batch " << (offset/bs + 1) << " with " << n << " trades" << std::endl;
 
         SQLSetStmtAttr(stmt_, SQL_ATTR_PARAMSET_SIZE,
                        (SQLPOINTER)(SQLULEN)n, 0);
@@ -326,15 +445,28 @@ void MSSQLBulkInserter::bulkInsertTrades(
 
         ret = SQLExecute(stmt_);
         if (!SQL_SUCCEEDED(ret)) {
+            std::cerr << "[" << getCurrentTimestamp() << "][ERROR]   Failed to execute trade batch insertion" << std::endl;
             throwODBCError(SQL_HANDLE_STMT, stmt_,
                            "SQLExecute bulkInsertTrades");
         }
 
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Successfully executed batch with " << n << " trades" << std::endl;
+        
         SQLFreeStmt(stmt_, SQL_RESET_PARAMS);
         offset += n;
+        total_inserted += n;
     }
 
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Committing transaction for " << total_inserted << " trades" << std::endl;
     commitTransaction();
+    
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    
+    std::cout << "[" << getCurrentTimestamp() << "][INFO] MSSQLBulkInserter: Successfully inserted " << total_inserted
+              << " trades in " << duration.count() << "ms" << std::endl;
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Insertion rate: "
+              << (total_inserted * 1000.0 / duration.count()) << " trades/second" << std::endl;
 }
 
 // ----------------- OHLCV BULK INSERT -------------------
@@ -394,8 +526,16 @@ void MSSQLBulkInserter::bulkInsertOHLCV(
     const std::vector<OHLCV>& candles,
     std::size_t batch_size) {
 
-    if (candles.empty()) return;
+    if (candles.empty()) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: bulkInsertOHLCV called with empty candle list" << std::endl;
+        return;
+    }
+    
+    std::cout << "[" << getCurrentTimestamp() << "][INFO] MSSQLBulkInserter: Starting bulk insert of " << candles.size()
+              << " OHLCV candles into table " << table_name << std::endl;
 
+    auto start_time = std::chrono::high_resolution_clock::now();
+    
     ensureKlinesTable(table_name);
 
     std::string query =
@@ -420,6 +560,8 @@ void MSSQLBulkInserter::bulkInsertOHLCV(
 
     constexpr std::size_t STR_LEN = 50;
 
+    std::size_t total_inserted = 0;
+    
     for (std::size_t offset = 0; offset < total; ) {
         std::size_t n = std::min(bs, total - offset);
 
@@ -551,15 +693,28 @@ void MSSQLBulkInserter::bulkInsertOHLCV(
 
         ret = SQLExecute(stmt_);
         if (!SQL_SUCCEEDED(ret)) {
+            std::cerr << "[" << getCurrentTimestamp() << "][ERROR]   Failed to execute OHLCV batch insertion" << std::endl;
             throwODBCError(SQL_HANDLE_STMT, stmt_,
                            "SQLExecute bulkInsertOHLCV");
         }
 
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Successfully executed batch with " << n << " candles" << std::endl;
+        
         SQLFreeStmt(stmt_, SQL_RESET_PARAMS);
         offset += n;
+        total_inserted += n;
     }
 
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Committing transaction for " << total_inserted << " candles" << std::endl;
     commitTransaction();
+    
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    
+    std::cout << "[" << getCurrentTimestamp() << "][INFO] MSSQLBulkInserter: Successfully inserted " << total_inserted
+              << " OHLCV candles into " << table_name << " in " << duration.count() << "ms" << std::endl;
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Insertion rate: "
+              << (total_inserted * 1000.0 / duration.count()) << " candles/second" << std::endl;
 }
 
 // ----------------- ORDERBOOK BULK INSERT -------------------
@@ -568,7 +723,16 @@ void MSSQLBulkInserter::bulkInsertOrderbooks(
     const std::vector<MarketData::OrderbookSnapshot>& obs,
     std::size_t batch_size) {
 
-    if (obs.empty()) return;
+    if (obs.empty()) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: bulkInsertOrderbooks called with empty orderbook list" << std::endl;
+        return;
+    }
+    
+    std::cout << "[" << getCurrentTimestamp() << "][INFO] MSSQLBulkInserter: Starting bulk insert of " << obs.size()
+              << " orderbook snapshots" << std::endl;
+
+    auto start_time = std::chrono::high_resolution_clock::now();
+    
     ensureCoreTables();
 
     const char* sql =
@@ -583,6 +747,8 @@ void MSSQLBulkInserter::bulkInsertOrderbooks(
     constexpr std::size_t JSON_LEN   = 2048;
     constexpr std::size_t CK_LEN     = 128;
 
+    std::size_t total_inserted = 0;
+    
     for (std::size_t offset = 0; offset < obs.size(); ) {
         std::size_t n = std::min(batch_size, obs.size() - offset);
 
@@ -720,15 +886,28 @@ void MSSQLBulkInserter::bulkInsertOrderbooks(
 
         ret = SQLExecute(stmt_);
         if (!SQL_SUCCEEDED(ret)) {
+            std::cerr << "[" << getCurrentTimestamp() << "][ERROR]   Failed to execute orderbook batch insertion" << std::endl;
             throwODBCError(SQL_HANDLE_STMT, stmt_,
                            "SQLExecute bulkInsertOrderbooks");
         }
 
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Successfully executed batch with " << n << " orderbooks" << std::endl;
+        
         SQLFreeStmt(stmt_, SQL_RESET_PARAMS);
         offset += n;
+        total_inserted += n;
     }
 
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Committing transaction for " << total_inserted << " orderbooks" << std::endl;
     commitTransaction();
+    
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    
+    std::cout << "[" << getCurrentTimestamp() << "][INFO] MSSQLBulkInserter: Successfully inserted " << total_inserted
+              << " orderbook snapshots in " << duration.count() << "ms" << std::endl;
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Insertion rate: "
+              << (total_inserted * 1000.0 / duration.count()) << " orderbooks/second" << std::endl;
 }
 
 // ----------------- CORE TABLES & IDENT HELPERS -------------------

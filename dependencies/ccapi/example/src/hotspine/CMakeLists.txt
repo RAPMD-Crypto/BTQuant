@@ -1,3 +1,6 @@
+cmake_minimum_required(VERSION 3.10)
+project(hotspine)
+
 add_library(hotspine_writer STATIC
     hotspine_writer.cpp
 )
