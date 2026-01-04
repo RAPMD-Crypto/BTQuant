@@ -10,6 +10,7 @@
 #include "candle_aggregator.h"
 #include "mssql_bulk_inserter.h"
 #include "../hotspine/hotspine_writer.hpp"
+#include "config_types.h"
 
 class MarketDataProcessor : public ccapi::EventHandler {
 public:
@@ -34,7 +35,8 @@ public:
     MarketDataProcessor(std::shared_ptr<MSSQLBulkInserter> db,
                         std::shared_ptr<CandleAggregator> candle_agg,
                         std::shared_ptr<HotSpine::HotSpineWriter> hotspine_writer = nullptr,
-                        bool enable_exclusive_hotspine = false);
+                        bool enable_exclusive_hotspine = false,
+                        const ConfigTypes::DebugConfig& debug_config = {});
 
     void processEvent(const ccapi::Event& event,
                       ccapi::Session* session) override;
@@ -84,6 +86,9 @@ private:
     std::size_t max_orderbook_buffer_size_{100};
 
     bool enable_exclusive_hotspine_{false};
+    ConfigTypes::DebugConfig debug_config_;
+
+    void debugLog(const std::string& msg) const;
 
     void handleTradeMessage(const ccapi::Message& msg);
     void handleOrderbookMessage(const ccapi::Message& msg);

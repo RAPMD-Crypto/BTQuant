@@ -167,8 +167,8 @@ MarketDataCollector::Config loadConfig(const std::string& path) {
     std::cout << "[" << getCurrentTimestamp() << "][INFO]   Stats report interval: " << cfg.stats_report_interval_s << "s" << std::endl;
 
     // Load new configuration options
-    cfg.enable_mssql              = j.value("enable_mssql", true);
-    cfg.enable_exclusive_hotspine = j.value("enable_exclusive_hotspine", false);
+    cfg.enable_mssql              = j.contains("enable_mssql") ? j["enable_mssql"].get<bool>() : true;
+    cfg.enable_exclusive_hotspine = j.contains("enable_exclusive_hotspine") ? j["enable_exclusive_hotspine"].get<bool>() : false;
 
     std::cout << "[" << getCurrentTimestamp() << "][INFO] ConfigLoader: Feature toggle settings loaded:" << std::endl;
     std::cout << "[" << getCurrentTimestamp() << "][INFO]   Enable MS SQL: " << (cfg.enable_mssql ? "true" : "false") << std::endl;
@@ -179,21 +179,21 @@ MarketDataCollector::Config loadConfig(const std::string& path) {
         std::cout << "[" << getCurrentTimestamp() << "][INFO] ConfigLoader: Loading debug mode configuration" << std::endl;
         auto debug = j.at("debug_mode");
         
-        cfg.debug_config.enabled                    = debug.value("enabled", false);
-        cfg.debug_config.verbose_logging            = debug.value("verbose_logging", false);
-        cfg.debug_config.websocket_debug            = debug.value("websocket_debug", false);
+        cfg.debug_config.enabled                    = debug.contains("enabled") && debug["enabled"].is_boolean() ? debug["enabled"].get<bool>() : false;
+        cfg.debug_config.verbose_logging            = debug.contains("verbose_logging") && debug["verbose_logging"].is_boolean() ? debug["verbose_logging"].get<bool>() : false;
+        cfg.debug_config.websocket_debug            = debug.contains("websocket_debug") && debug["websocket_debug"].is_boolean() ? debug["websocket_debug"].get<bool>() : false;
         // Handle database_debug: if boolean, use it; if object or present, enable
         if (debug.contains("database_debug") && debug["database_debug"].is_boolean()) {
             cfg.debug_config.database_debug = debug["database_debug"].get<bool>();
-        } else {
-            cfg.debug_config.database_debug = debug.contains("database_debug");
+        } else if (debug.contains("database_debug")) {
+            cfg.debug_config.database_debug = true;
         }
-        cfg.debug_config.buffer_debug               = debug.value("buffer_debug", false);
-        cfg.debug_config.flush_debug                = debug.value("flush_debug", false);
-        cfg.debug_config.performance_monitoring     = debug.value("performance_monitoring", false);
-        cfg.debug_config.connection_health_checks   = debug.value("connection_health_checks", false);
-        cfg.debug_config.data_flow_validation       = debug.value("data_flow_validation", false);
-        cfg.debug_config.error_tracing              = debug.value("error_tracing", false);
+        cfg.debug_config.buffer_debug               = debug.contains("buffer_debug") && debug["buffer_debug"].is_boolean() ? debug["buffer_debug"].get<bool>() : false;
+        cfg.debug_config.flush_debug                = debug.contains("flush_debug") && debug["flush_debug"].is_boolean() ? debug["flush_debug"].get<bool>() : false;
+        cfg.debug_config.performance_monitoring     = debug.contains("performance_monitoring") && debug["performance_monitoring"].is_boolean() ? debug["performance_monitoring"].get<bool>() : false;
+        cfg.debug_config.connection_health_checks   = debug.contains("connection_health_checks") && debug["connection_health_checks"].is_boolean() ? debug["connection_health_checks"].get<bool>() : false;
+        cfg.debug_config.data_flow_validation       = debug.contains("data_flow_validation") && debug["data_flow_validation"].is_boolean() ? debug["data_flow_validation"].get<bool>() : false;
+        cfg.debug_config.error_tracing              = debug.contains("error_tracing") && debug["error_tracing"].is_boolean() ? debug["error_tracing"].get<bool>() : false;
         cfg.debug_config.timestamp_precision        = debug.value("timestamp_precision", std::string("milliseconds"));
         cfg.debug_config.log_level                  = debug.value("log_level", std::string("INFO"));
         
@@ -208,11 +208,11 @@ MarketDataCollector::Config loadConfig(const std::string& path) {
         // Load database debug configuration
         if (debug.contains("database_debug") && debug["database_debug"].is_object()) {
             auto dbg = debug.at("database_debug");
-            cfg.debug_config.database_debug_config.verify_connection_on_start = dbg.value("verify_connection_on_start", false);
-            cfg.debug_config.database_debug_config.test_table_creation        = dbg.value("test_table_creation", false);
-            cfg.debug_config.database_debug_config.log_all_queries            = dbg.value("log_all_queries", false);
-            cfg.debug_config.database_debug_config.log_connection_status      = dbg.value("log_connection_status", false);
-            cfg.debug_config.database_debug_config.enable_detailed_error_logging = dbg.value("enable_detailed_error_logging", false);
+            cfg.debug_config.database_debug_config.verify_connection_on_start = dbg.contains("verify_connection_on_start") ? dbg["verify_connection_on_start"].get<bool>() : false;
+            cfg.debug_config.database_debug_config.test_table_creation        = dbg.contains("test_table_creation") ? dbg["test_table_creation"].get<bool>() : false;
+            cfg.debug_config.database_debug_config.log_all_queries            = dbg.contains("log_all_queries") ? dbg["log_all_queries"].get<bool>() : false;
+            cfg.debug_config.database_debug_config.log_connection_status      = dbg.contains("log_connection_status") ? dbg["log_connection_status"].get<bool>() : false;
+            cfg.debug_config.database_debug_config.enable_detailed_error_logging = dbg.contains("enable_detailed_error_logging") ? dbg["enable_detailed_error_logging"].get<bool>() : false;
             cfg.debug_config.database_debug_config.connection_timeout_ms      = dbg.value("connection_timeout_ms", 30000);
             cfg.debug_config.database_debug_config.command_timeout_ms         = dbg.value("command_timeout_ms", 60000);
         }
@@ -220,37 +220,50 @@ MarketDataCollector::Config loadConfig(const std::string& path) {
         // Load WebSocket debug configuration
         if (debug.contains("websocket_debug") && debug["websocket_debug"].is_object()) {
             auto wsd = debug.at("websocket_debug");
-            cfg.debug_config.websocket_debug_config.log_connection_attempts     = wsd.value("log_connection_attempts", false);
-            cfg.debug_config.websocket_debug_config.log_subscription_status     = wsd.value("log_subscription_status", false);
-            cfg.debug_config.websocket_debug_config.log_data_reception          = wsd.value("log_data_reception", false);
-            cfg.debug_config.websocket_debug_config.ping_pong_monitoring        = wsd.value("ping_pong_monitoring", false);
-            cfg.debug_config.websocket_debug_config.connection_health_monitoring = wsd.value("connection_health_monitoring", false);
-            cfg.debug_config.websocket_debug_config.timeout_debugging            = wsd.value("timeout_debugging", false);
-            cfg.debug_config.websocket_debug_config.protocol_error_logging       = wsd.value("protocol_error_logging", false);
-            cfg.debug_config.websocket_debug_config.data_rate_monitoring         = wsd.value("data_rate_monitoring", false);
+            cfg.debug_config.websocket_debug_config.log_connection_attempts     = wsd.contains("log_connection_attempts") ? wsd["log_connection_attempts"].get<bool>() : false;
+            cfg.debug_config.websocket_debug_config.log_subscription_status     = wsd.contains("log_subscription_status") ? wsd["log_subscription_status"].get<bool>() : false;
+            cfg.debug_config.websocket_debug_config.log_data_reception          = wsd.contains("log_data_reception") ? wsd["log_data_reception"].get<bool>() : false;
+            cfg.debug_config.websocket_debug_config.ping_pong_monitoring        = wsd.contains("ping_pong_monitoring") ? wsd["ping_pong_monitoring"].get<bool>() : false;
+            cfg.debug_config.websocket_debug_config.connection_health_monitoring = wsd.contains("connection_health_monitoring") ? wsd["connection_health_monitoring"].get<bool>() : false;
+            cfg.debug_config.websocket_debug_config.timeout_debugging            = wsd.contains("timeout_debugging") ? wsd["timeout_debugging"].get<bool>() : false;
+            cfg.debug_config.websocket_debug_config.protocol_error_logging       = wsd.contains("protocol_error_logging") ? wsd["protocol_error_logging"].get<bool>() : false;
+            cfg.debug_config.websocket_debug_config.data_rate_monitoring         = wsd.contains("data_rate_monitoring") ? wsd["data_rate_monitoring"].get<bool>() : false;
         }
         
         // Load buffer debug configuration
         if (debug.contains("buffer_debug") && debug["buffer_debug"].is_object()) {
             auto bd = debug.at("buffer_debug");
-            cfg.debug_config.buffer_debug_config.log_buffer_operations  = bd.value("log_buffer_operations", false);
-            cfg.debug_config.buffer_debug_config.log_threshold_crossing = bd.value("log_threshold_crossing", false);
-            cfg.debug_config.buffer_debug_config.log_flush_decisions    = bd.value("log_flush_decisions", false);
-            cfg.debug_config.buffer_debug_config.monitor_memory_usage   = bd.value("monitor_memory_usage", false);
-            cfg.debug_config.buffer_debug_config.track_buffer_sizes     = bd.value("track_buffer_sizes", false);
-            cfg.debug_config.buffer_debug_config.log_batch_operations   = bd.value("log_batch_operations", false);
+            cfg.debug_config.buffer_debug_config.log_buffer_operations  = bd.contains("log_buffer_operations") ? bd["log_buffer_operations"].get<bool>() : false;
+            cfg.debug_config.buffer_debug_config.log_threshold_crossing = bd.contains("log_threshold_crossing") ? bd["log_threshold_crossing"].get<bool>() : false;
+            cfg.debug_config.buffer_debug_config.log_flush_decisions    = bd.contains("log_flush_decisions") ? bd["log_flush_decisions"].get<bool>() : false;
+            cfg.debug_config.buffer_debug_config.monitor_memory_usage   = bd.contains("monitor_memory_usage") ? bd["monitor_memory_usage"].get<bool>() : false;
+            cfg.debug_config.buffer_debug_config.track_buffer_sizes     = bd.contains("track_buffer_sizes") ? bd["track_buffer_sizes"].get<bool>() : false;
+            cfg.debug_config.buffer_debug_config.log_batch_operations   = bd.contains("log_batch_operations") ? bd["log_batch_operations"].get<bool>() : false;
         }
         
         // Load performance monitoring configuration
         if (debug.contains("performance_monitoring") && debug["performance_monitoring"].is_object()) {
             auto pm = debug.at("performance_monitoring");
-            cfg.debug_config.performance_config.measure_processing_latency = pm.value("measure_processing_latency", false);
-            cfg.debug_config.performance_config.track_throughput           = pm.value("track_throughput", false);
-            cfg.debug_config.performance_config.monitor_resource_usage     = pm.value("monitor_resource_usage", false);
-            cfg.debug_config.performance_config.log_performance_metrics    = pm.value("log_performance_metrics", false);
-            cfg.debug_config.performance_config.alert_on_slow_operations   = pm.value("alert_on_slow_operations", false);
+            cfg.debug_config.performance_config.measure_processing_latency = pm.contains("measure_processing_latency") ? pm["measure_processing_latency"].get<bool>() : false;
+            cfg.debug_config.performance_config.track_throughput           = pm.contains("track_throughput") ? pm["track_throughput"].get<bool>() : false;
+            cfg.debug_config.performance_config.monitor_resource_usage     = pm.contains("monitor_resource_usage") ? pm["monitor_resource_usage"].get<bool>() : false;
+            cfg.debug_config.performance_config.log_performance_metrics    = pm.contains("log_performance_metrics") ? pm["log_performance_metrics"].get<bool>() : false;
+            cfg.debug_config.performance_config.alert_on_slow_operations   = pm.contains("alert_on_slow_operations") ? pm["alert_on_slow_operations"].get<bool>() : false;
         }
         
+        // If debug mode is disabled, override all sub-flags to false
+        if (!cfg.debug_config.enabled) {
+            cfg.debug_config.verbose_logging = false;
+            cfg.debug_config.websocket_debug = false;
+            cfg.debug_config.database_debug = false;
+            cfg.debug_config.buffer_debug = false;
+            cfg.debug_config.flush_debug = false;
+            cfg.debug_config.performance_monitoring = false;
+            cfg.debug_config.connection_health_checks = false;
+            cfg.debug_config.data_flow_validation = false;
+            cfg.debug_config.error_tracing = false;
+        }
+
         std::cout << "[" << getCurrentTimestamp() << "][INFO] ConfigLoader: Debug mode configuration completed successfully" << std::endl;
     } else {
         std::cout << "[" << getCurrentTimestamp() << "][INFO] ConfigLoader: No debug mode configuration found, using defaults" << std::endl;

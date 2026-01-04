@@ -61,7 +61,7 @@ MarketDataCollector::MarketDataCollector(const Config& cfg)
     if (config_.enable_mssql) {
         std::cout << "[" << getCurrentTimestamp() << "][INFO] MarketDataCollector: Initializing MS SQL database connection" << std::endl;
         db_ = std::make_shared<MSSQLBulkInserter>(
-            config_.db_connection_string);
+            config_.db_connection_string, config_.debug_config.database_debug);
         
         // Enable debug mode if configured
         if (config_.debug_config.enabled && config_.debug_config.database_debug) {
@@ -89,7 +89,7 @@ MarketDataCollector::MarketDataCollector(const Config& cfg)
     std::cout << "[" << getCurrentTimestamp() << "][INFO] MarketDataCollector: HotSpine batching configured (size: 50)" << std::endl;
 
     std::cout << "[" << getCurrentTimestamp() << "][INFO] MarketDataCollector: Initializing market data processor" << std::endl;
-    processor_ = std::make_shared<MarketDataProcessor>(db_, candle_agg_, hotspine_writer_, config_.enable_exclusive_hotspine);
+    processor_ = std::make_shared<MarketDataProcessor>(db_, candle_agg_, hotspine_writer_, config_.enable_exclusive_hotspine, config_.debug_config);
     std::cout << "[" << getCurrentTimestamp() << "][INFO] MarketDataCollector: Market data processor initialized" << std::endl;
      
     // Log HotSpine integration status

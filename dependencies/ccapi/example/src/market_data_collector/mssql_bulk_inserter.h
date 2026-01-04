@@ -11,7 +11,7 @@
 
 class MSSQLBulkInserter {
 public:
-    explicit MSSQLBulkInserter(const std::string& connection_string);
+    explicit MSSQLBulkInserter(const std::string& connection_string, bool debug_mode = false);
     ~MSSQLBulkInserter();
 
     MSSQLBulkInserter(const MSSQLBulkInserter&) = delete;

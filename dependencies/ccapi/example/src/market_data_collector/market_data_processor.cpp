@@ -75,11 +75,19 @@ MarketDataProcessor::MarketDataProcessor(
     std::shared_ptr<MSSQLBulkInserter> db,
     std::shared_ptr<CandleAggregator> candle_agg,
     std::shared_ptr<HotSpine::HotSpineWriter> hotspine_writer,
-    bool enable_exclusive_hotspine)
+    bool enable_exclusive_hotspine,
+    const ConfigTypes::DebugConfig& debug_config)
     : db_(std::move(db)),
       candle_agg_(std::move(candle_agg)),
       hotspine_writer_(std::move(hotspine_writer)),
-      enable_exclusive_hotspine_(enable_exclusive_hotspine) {}
+      enable_exclusive_hotspine_(enable_exclusive_hotspine),
+      debug_config_(debug_config) {}
+
+void MarketDataProcessor::debugLog(const std::string& msg) const {
+    if (debug_config_.enabled) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MarketDataProcessor: " << msg << std::endl;
+    }
+}
 
 std::vector<std::string> MarketDataProcessor::split(
     const std::string& s, char delim) {
@@ -97,18 +105,11 @@ void MarketDataProcessor::processEvent(const ccapi::Event& event,
     using Type = ccapi::Event::Type;
     const auto type = event.getType();
     
-    // Add comprehensive event logging at the start
-    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MarketDataProcessor: Received event of type: " << static_cast<int>(type) << std::endl;
-    
-    // Add WebSocket-specific event tracking
-    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MarketDataProcessor: WebSocket Event Tracking - Type: " << static_cast<int>(type) << std::endl;
-    
-    // Add WebSocket connection health monitoring
-    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MarketDataProcessor: WebSocket Connection Health - Event received, connection appears active" << std::endl;
-    
-    // Add CCAPI data flow tracking
-    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MarketDataProcessor: CCAPI Data Flow - Event received for processing" << std::endl;
-    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MarketDataProcessor: CCAPI Data Flow - Event type: " << static_cast<int>(type) << " detected" << std::endl;
+    debugLog("MarketDataProcessor: Received event of type: " + std::to_string(static_cast<int>(type)));
+    debugLog("MarketDataProcessor: WebSocket Event Tracking - Type: " + std::to_string(static_cast<int>(type)));
+    debugLog("MarketDataProcessor: WebSocket Connection Health - Event received, connection appears active");
+    debugLog("MarketDataProcessor: CCAPI Data Flow - Event received for processing");
+    debugLog("MarketDataProcessor: CCAPI Data Flow - Event type: " + std::to_string(static_cast<int>(type)) + " detected");
     
     try {
         if (type == Type::SESSION_STATUS ||
@@ -143,12 +144,10 @@ void MarketDataProcessor::processEvent(const ccapi::Event& event,
             std::cout << "[" << getCurrentTimestamp() << "][INFO] MarketDataProcessor: Processing SUBSCRIPTION_DATA event" << std::endl;
             std::cout << "[" << getCurrentTimestamp() << "][INFO]   Message count: " << event.getMessageList().size() << std::endl;
             
-            // Add detailed event information logging
-            std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MarketDataProcessor: Detailed event information:" << std::endl;
-            std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Event type: " << static_cast<int>(type) << std::endl;
-            // Note: Event class doesn't have getTime() method, using current timestamp instead
-            std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Processing timestamp: " << getCurrentTimestamp() << std::endl;
-            std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Message list size: " << event.getMessageList().size() << std::endl;
+            debugLog("MarketDataProcessor: Detailed event information:");
+            debugLog("  Event type: " + std::to_string(static_cast<int>(type)));
+            debugLog("  Processing timestamp: " + getCurrentTimestamp());
+            debugLog("  Message list size: " + std::to_string(event.getMessageList().size()));
             
             if (event.getMessageList().empty()) {
                 std::cout << "[" << getCurrentTimestamp() << "][WARNING] MarketDataProcessor: Empty message list received!" << std::endl;
@@ -174,8 +173,10 @@ void MarketDataProcessor::processEvent(const ccapi::Event& event,
                 std::cout << "[" << getCurrentTimestamp() << "][WARNING]   - Monitor for SUBSCRIPTION_STATUS events after reconnection" << std::endl;
             } else {
                 std::cout << "[" << getCurrentTimestamp() << "][INFO] MarketDataProcessor: WebSocket data received successfully!" << std::endl;
-                std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   WebSocket connection appears healthy" << std::endl;
-                std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Processing " << event.getMessageList().size() << " messages" << std::endl;
+                if (debug_config_.enabled) {
+                    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   WebSocket connection appears healthy" << std::endl;
+                    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Processing " << event.getMessageList().size() << " messages" << std::endl;
+                }
             }
 
             // Add detailed WebSocket data flow monitoring

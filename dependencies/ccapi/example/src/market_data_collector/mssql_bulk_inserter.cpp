@@ -46,23 +46,31 @@ inline void copyStrFixed(const std::string& s, std::array<SQLCHAR, N>& buf) {
 
 } // anonymous namespace
 
-MSSQLBulkInserter::MSSQLBulkInserter(const std::string& connection_string)
-    : connection_string_(connection_string) {
+MSSQLBulkInserter::MSSQLBulkInserter(const std::string& connection_string, bool debug_mode)
+    : connection_string_(connection_string), debug_mode_(debug_mode) {
     SQLRETURN ret;
 
     std::cout << "[" << getCurrentTimestamp() << "][INFO] MSSQLBulkInserter: Initializing database connection" << std::endl;
-    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Connection string: " << connection_string_ << std::endl;
+    if (debug_mode_) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Connection string: " << connection_string_ << std::endl;
+    }
 
     // ENV
-    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Allocating ODBC environment handle" << std::endl;
+    if (debug_mode_) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Allocating ODBC environment handle" << std::endl;
+    }
     ret = SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, &env_);
     if (!SQL_SUCCEEDED(ret)) {
         std::cerr << "[" << getCurrentTimestamp() << "][ERROR] MSSQLBulkInserter: Failed to allocate ODBC environment handle" << std::endl;
         throw std::runtime_error("SQLAllocHandle ENV");
     }
-    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   ODBC environment handle allocated successfully" << std::endl;
+    if (debug_mode_) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   ODBC environment handle allocated successfully" << std::endl;
+    }
 
-    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Setting ODBC version to ODBC3" << std::endl;
+    if (debug_mode_) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Setting ODBC version to ODBC3" << std::endl;
+    }
     ret = SQLSetEnvAttr(env_, SQL_ATTR_ODBC_VERSION,
                         (SQLPOINTER)SQL_OV_ODBC3, 0);
     if (!SQL_SUCCEEDED(ret)) {
@@ -70,19 +78,27 @@ MSSQLBulkInserter::MSSQLBulkInserter(const std::string& connection_string)
         SQLFreeHandle(SQL_HANDLE_ENV, env_);
         throw std::runtime_error("SQLSetEnvAttr ODBC_VERSION");
     }
-    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   ODBC version set successfully" << std::endl;
+    if (debug_mode_) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   ODBC version set successfully" << std::endl;
+    }
 
     // DBC
-    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Allocating ODBC connection handle" << std::endl;
+    if (debug_mode_) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Allocating ODBC connection handle" << std::endl;
+    }
     ret = SQLAllocHandle(SQL_HANDLE_DBC, env_, &dbc_);
     if (!SQL_SUCCEEDED(ret)) {
         std::cerr << "[" << getCurrentTimestamp() << "][ERROR] MSSQLBulkInserter: Failed to allocate ODBC connection handle" << std::endl;
         SQLFreeHandle(SQL_HANDLE_ENV, env_);
         throw std::runtime_error("SQLAllocHandle DBC");
     }
-    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   ODBC connection handle allocated successfully" << std::endl;
+    if (debug_mode_) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   ODBC connection handle allocated successfully" << std::endl;
+    }
 
-    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Connecting to database using SQLDriverConnect" << std::endl;
+    if (debug_mode_) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Connecting to database using SQLDriverConnect" << std::endl;
+    }
     SQLCHAR out_conn_str[1024];
     SQLSMALLINT out_len = 0;
     ret = SQLDriverConnect(
@@ -98,22 +114,34 @@ MSSQLBulkInserter::MSSQLBulkInserter(const std::string& connection_string)
     }
 
     std::cout << "[" << getCurrentTimestamp() << "][INFO] MSSQLBulkInserter: Database connection established successfully" << std::endl;
-    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Connection output: " << std::string((char*)out_conn_str, out_len) << std::endl;
+    if (debug_mode_) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Connection output: " << std::string((char*)out_conn_str, out_len) << std::endl;
+    }
 
     // STMT used for data-path & DDL
-    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Allocating ODBC statement handle" << std::endl;
+    if (debug_mode_) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Allocating ODBC statement handle" << std::endl;
+    }
     ret = SQLAllocHandle(SQL_HANDLE_STMT, dbc_, &stmt_);
     if (!SQL_SUCCEEDED(ret)) {
         std::cerr << "[" << getCurrentTimestamp() << "][ERROR] MSSQLBulkInserter: Failed to allocate ODBC statement handle" << std::endl;
         throwODBCError(SQL_HANDLE_DBC, dbc_, "SQLAllocHandle STMT");
     }
-    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   ODBC statement handle allocated successfully" << std::endl;
+    if (debug_mode_) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   ODBC statement handle allocated successfully" << std::endl;
+    }
 
-    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Configuring database connection settings" << std::endl;
+    if (debug_mode_) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Configuring database connection settings" << std::endl;
+    }
     setAutoCommit(false);
-    std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Auto-commit disabled, transaction mode enabled" << std::endl;
+    if (debug_mode_) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Auto-commit disabled, transaction mode enabled" << std::endl;
+    }
 
-    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Ensuring core database tables exist" << std::endl;
+    if (debug_mode_) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Ensuring core database tables exist" << std::endl;
+    }
     ensureCoreTables();
     
     // Add database connection verification if requested
