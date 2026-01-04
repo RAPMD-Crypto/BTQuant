@@ -34,6 +34,12 @@ public:
     void bulkInsertOrderbooks(
         const std::vector<MarketData::OrderbookSnapshot>& snapshots,
         std::size_t batch_size = 200);
+    
+    // Debug and verification methods
+    bool verifyConnection() const;
+    void testTableCreation();
+    void setDebugMode(bool enabled) { debug_mode_ = enabled; }
+    void enableDetailedLogging(bool enabled) { detailed_logging_ = enabled; }
 
 private:
     SQLHENV env_{SQL_NULL_HENV};
@@ -42,6 +48,8 @@ private:
     std::string connection_string_;
     std::mutex ddl_mutex_;
     std::unordered_set<std::string> known_klines_tables_;
+    bool debug_mode_{false};
+    bool detailed_logging_{false};
 
     void ensureCoreTables();                      // optional, for trades/orderbooks
     void ensureKlinesTable(const std::string&);   // per-symbol klines

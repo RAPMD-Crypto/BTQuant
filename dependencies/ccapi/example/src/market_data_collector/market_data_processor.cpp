@@ -496,21 +496,44 @@ void MarketDataProcessor::flushTradesIfNeeded(bool force) {
     {
         std::lock_guard<std::mutex> lock(buffer_mutex_);
         std::cout << "[" << getCurrentTimestamp() << "][DEBUG] flushTradesIfNeeded: Checking buffer. Size: " << trade_buffer_.size() << ", Max: " << max_trade_buffer_size_ << std::endl;
+        
+        // Enhanced buffer debugging
+        if (trade_buffer_.size() > 0) {
+            std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Buffer contains " << trade_buffer_.size() << " trades ready for database insertion" << std::endl;
+            if (trade_buffer_.size() >= max_trade_buffer_size_) {
+                std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Buffer is FULL - trigger forced flush" << std::endl;
+            } else {
+                std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Buffer is " << ((double)trade_buffer_.size() / max_trade_buffer_size_ * 100) << "% full" << std::endl;
+            }
+        }
+        
         if (!force && trade_buffer_.size() < max_trade_buffer_size_) {
-            std::cout << "[" << getCurrentTimestamp() << "][DEBUG] flushTradesIfNeeded: Buffer not full enough, skipping flush" << std::endl;
+            std::cout << "[" << getCurrentTimestamp() << "][DEBUG] flushTradesIfNeeded: Buffer not full enough for automatic flush" << std::endl;
+            std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Current: " << trade_buffer_.size() << ", Required: " << max_trade_buffer_size_ << std::endl;
             return;
         }
         batch.swap(trade_buffer_);
-        std::cout << "[" << getCurrentTimestamp() << "][DEBUG] flushTradesIfNeeded: Swapped batch of " << batch.size() << " trades" << std::endl;
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG] flushTradesIfNeeded: Swapped batch of " << batch.size() << " trades for database insertion" << std::endl;
     }
     if (batch.empty()) {
-        std::cout << "[" << getCurrentTimestamp() << "][DEBUG] flushTradesIfNeeded: Batch is empty, skipping" << std::endl;
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG] flushTradesIfNeeded: Batch is empty, no database insertion needed" << std::endl;
         return;
     }
 
     try {
         std::cout << "[" << getCurrentTimestamp() << "][DEBUG] flushTradesIfNeeded: Inserting " << batch.size() << " trades into database" << std::endl;
         std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Database connection status: " << (db_ && db_->isConnected() ? "CONNECTED" : "DISCONNECTED") << std::endl;
+        
+        if (!db_ || !db_->isConnected()) {
+            std::cerr << "[" << getCurrentTimestamp() << "][ERROR] flushTradesIfNeeded: Database connection not available!" << std::endl;
+            std::cerr << "[" << getCurrentTimestamp() << "][ERROR]   Cannot insert " << batch.size() << " trades - database connection failed" << std::endl;
+            // Put trades back in buffer for retry
+            {
+                std::lock_guard<std::mutex> lock(buffer_mutex_);
+                trade_buffer_.insert(trade_buffer_.end(), batch.begin(), batch.end());
+            }
+            return;
+        }
         
         std::lock_guard<std::mutex> db_lock(db_mutex_);
         
@@ -524,14 +547,23 @@ void MarketDataProcessor::flushTradesIfNeeded(bool force) {
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
         
         stats_.trades_inserted += batch.size();
-        std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Successfully inserted " << batch.size() << " trades in " << duration.count() << "ms" << std::endl;
-        std::cout << "[" << getCurrentTimestamp() << "][DEBUG]   Database operation completed successfully" << std::endl;
+        std::cout << "[" << getCurrentTimestamp() << "][INFO] flushTradesIfNeeded: Successfully inserted " << batch.size() << " trades in " << duration.count() << "ms" << std::endl;
+        std::cout << "[" << getCurrentTimestamp() << "][INFO]   Insertion rate: " << (batch.size() * 1000.0 / duration.count()) << " trades/second" << std::endl;
+        std::cout << "[" << getCurrentTimestamp() << "][INFO]   Database operation completed successfully" << std::endl;
     } catch (const std::exception& e) {
         ++errors_;
         std::cerr << "[" << getCurrentTimestamp() << "][ERROR] flushTradesIfNeeded error: " << e.what() << std::endl;
         std::cerr << "[" << getCurrentTimestamp() << "][ERROR]   Database operation failed!" << std::endl;
         std::cerr << "[" << getCurrentTimestamp() << "][ERROR]   This could indicate database connectivity issues" << std::endl;
         std::cerr << "[" << getCurrentTimestamp() << "][ERROR]   Check database connection and credentials" << std::endl;
+        std::cerr << "[" << getCurrentTimestamp() << "][ERROR]   " << batch.size() << " trades were NOT inserted into database" << std::endl;
+        
+        // Put trades back in buffer for retry
+        {
+            std::lock_guard<std::mutex> lock(buffer_mutex_);
+            trade_buffer_.insert(trade_buffer_.end(), batch.begin(), batch.end());
+            std::cerr << "[" << getCurrentTimestamp() << "][ERROR]   Trades returned to buffer for retry, buffer size is now: " << trade_buffer_.size() << std::endl;
+        }
     }
 }
 

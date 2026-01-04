@@ -62,6 +62,14 @@ MarketDataCollector::MarketDataCollector(const Config& cfg)
         std::cout << "[" << getCurrentTimestamp() << "][INFO] MarketDataCollector: Initializing MS SQL database connection" << std::endl;
         db_ = std::make_shared<MSSQLBulkInserter>(
             config_.db_connection_string);
+        
+        // Enable debug mode if configured
+        if (config_.debug_config.enabled && config_.debug_config.database_debug) {
+            std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MarketDataCollector: Enabling database debug mode" << std::endl;
+            db_->setDebugMode(true);
+            db_->enableDetailedLogging(config_.debug_config.verbose_logging);
+        }
+        
         std::cout << "[" << getCurrentTimestamp() << "][INFO] MarketDataCollector: MS SQL database connection initialized" << std::endl;
     } else {
         std::cout << "[" << getCurrentTimestamp() << "][INFO] MarketDataCollector: MS SQL database disabled" << std::endl;

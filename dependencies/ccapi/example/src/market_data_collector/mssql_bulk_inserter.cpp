@@ -115,6 +115,24 @@ MSSQLBulkInserter::MSSQLBulkInserter(const std::string& connection_string)
 
     std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Ensuring core database tables exist" << std::endl;
     ensureCoreTables();
+    
+    // Add database connection verification if requested
+    if (debug_mode_) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Verifying database connection..." << std::endl;
+        if (verifyConnection()) {
+            std::cout << "[" << getCurrentTimestamp() << "][INFO] MSSQLBulkInserter: Database connection verified successfully" << std::endl;
+        } else {
+            std::cerr << "[" << getCurrentTimestamp() << "][ERROR] MSSQLBulkInserter: Database connection verification failed!" << std::endl;
+            throw std::runtime_error("Database connection verification failed");
+        }
+    }
+    
+    // Test table creation if requested
+    if (debug_mode_) {
+        std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Testing table creation..." << std::endl;
+        testTableCreation();
+    }
+    
     std::cout << "[" << getCurrentTimestamp() << "][INFO] MSSQLBulkInserter: Database initialization completed successfully" << std::endl;
 }
 
@@ -983,4 +1001,107 @@ std::string MSSQLBulkInserter::sanitizeIdentifier(const std::string& name) {
         throw std::runtime_error("sanitizeIdentifier: empty name");
     }
     return out;
+}
+
+bool MSSQLBulkInserter::verifyConnection() const {
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Verifying database connection..." << std::endl;
+    
+    if (!isConnected()) {
+        std::cerr << "[" << getCurrentTimestamp() << "][ERROR] MSSQLBulkInserter: Connection check failed - not connected" << std::endl;
+        return false;
+    }
+    
+    // Test with a simple query
+    SQLHSTMT test_stmt;
+    SQLRETURN ret = SQLAllocHandle(SQL_HANDLE_STMT, dbc_, &test_stmt);
+    if (!SQL_SUCCEEDED(ret)) {
+        std::cerr << "[" << getCurrentTimestamp() << "][ERROR] MSSQLBulkInserter: Failed to allocate test statement handle" << std::endl;
+        return false;
+    }
+    
+    ret = SQLExecDirect(test_stmt, (SQLCHAR*)"SELECT 1", SQL_NTS);
+    if (!SQL_SUCCEEDED(ret)) {
+        std::cerr << "[" << getCurrentTimestamp() << "][ERROR] MSSQLBulkInserter: Test query failed" << std::endl;
+        SQLFreeHandle(SQL_HANDLE_STMT, test_stmt);
+        return false;
+    }
+    
+    SQLINTEGER value;
+    ret = SQLBindCol(test_stmt, 1, SQL_C_LONG, &value, 0, nullptr);
+    if (!SQL_SUCCEEDED(ret)) {
+        std::cerr << "[" << getCurrentTimestamp() << "][ERROR] MSSQLBulkInserter: Failed to bind test result" << std::endl;
+        SQLFreeHandle(SQL_HANDLE_STMT, test_stmt);
+        return false;
+    }
+    
+    ret = SQLFetch(test_stmt);
+    if (!SQL_SUCCEEDED(ret)) {
+        std::cerr << "[" << getCurrentTimestamp() << "][ERROR] MSSQLBulkInserter: Failed to fetch test result" << std::endl;
+        SQLFreeHandle(SQL_HANDLE_STMT, test_stmt);
+        return false;
+    }
+    
+    if (value != 1) {
+        std::cerr << "[" << getCurrentTimestamp() << "][ERROR] MSSQLBulkInserter: Unexpected test result: " << value << std::endl;
+        SQLFreeHandle(SQL_HANDLE_STMT, test_stmt);
+        return false;
+    }
+    
+    SQLFreeHandle(SQL_HANDLE_STMT, test_stmt);
+    std::cout << "[" << getCurrentTimestamp() << "][INFO] MSSQLBulkInserter: Connection verification successful (test query returned 1)" << std::endl;
+    return true;
+}
+
+void MSSQLBulkInserter::testTableCreation() {
+    std::cout << "[" << getCurrentTimestamp() << "][DEBUG] MSSQLBulkInserter: Testing table creation..." << std::endl;
+    
+    resetStatement();
+    
+    // Create a test table
+    std::string test_sql = 
+        "IF OBJECT_ID('dbo.connection_test', 'U') IS NULL "
+        "BEGIN "
+        "CREATE TABLE [dbo].[connection_test] ("
+        "  id INT IDENTITY(1,1) PRIMARY KEY," 
+        "  test_value VARCHAR(100),"
+        "  created_at DATETIME2 DEFAULT GETDATE()"
+        ");"
+        "END;";
+    
+    SQLRETURN ret = SQLExecDirect(stmt_, (SQLCHAR*)test_sql.c_str(), SQL_NTS);
+    if (!SQL_SUCCEEDED(ret)) {
+        std::cerr << "[" << getCurrentTimestamp() << "][ERROR] MSSQLBulkInserter: Failed to create test table" << std::endl;
+        throwODBCError(SQL_HANDLE_STMT, stmt_, "Test table creation");
+    }
+    
+    // Insert a test record
+    SQLBindParameter(stmt_, 1, SQL_PARAM_INPUT, SQL_C_CHAR, SQL_VARCHAR, 100, 0, 
+                     (SQLCHAR*)"Connection test successful", SQL_NTS, nullptr);
+    
+    ret = SQLExecDirect(stmt_, (SQLCHAR*)"INSERT INTO [dbo].[connection_test] (test_value) VALUES (?)", SQL_NTS);
+    if (!SQL_SUCCEEDED(ret)) {
+        std::cerr << "[" << getCurrentTimestamp() << "][ERROR] MSSQLBulkInserter: Failed to insert test record" << std::endl;
+        throwODBCError(SQL_HANDLE_STMT, stmt_, "Test record insertion");
+    }
+    
+    // Query the test record back
+    ret = SQLExecDirect(stmt_, (SQLCHAR*)"SELECT test_value FROM [dbo].[connection_test] WHERE id = (SELECT MAX(id) FROM [dbo].[connection_test])", SQL_NTS);
+    if (!SQL_SUCCEEDED(ret)) {
+        std::cerr << "[" << getCurrentTimestamp() << "][ERROR] MSSQLBulkInserter: Failed to query test record" << std::endl;
+        throwODBCError(SQL_HANDLE_STMT, stmt_, "Test record query");
+    }
+    
+    char buffer[101];
+    SQLLEN indicator;
+    SQLBindCol(stmt_, 1, SQL_C_CHAR, buffer, sizeof(buffer), &indicator);
+    ret = SQLFetch(stmt_);
+    if (SQL_SUCCEEDED(ret)) {
+        std::cout << "[" << getCurrentTimestamp() << "][INFO] MSSQLBulkInserter: Test record retrieved: " << buffer << std::endl;
+    }
+    
+    // Clean up
+    SQLFreeStmt(stmt_, SQL_CLOSE);
+    SQLExecDirect(stmt_, (SQLCHAR*)"DROP TABLE [dbo].[connection_test]", SQL_NTS);
+    
+    std::cout << "[" << getCurrentTimestamp() << "][INFO] MSSQLBulkInserter: Table creation test completed successfully" << std::endl;
 }
