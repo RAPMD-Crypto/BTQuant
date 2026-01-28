@@ -19,7 +19,6 @@ BTQuant is an institutional-grade algorithmic trading framework that unifies his
 ## 📋 Table of Contents
 
 - [Quick Start](#quick-start)
-- [Installation](#installation)
 - [Documentation](#documentation)
 - [Architecture](#architecture)
 - [Features](#features)
